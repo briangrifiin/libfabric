@@ -35,20 +35,27 @@
 #define RXD_EP_CAPS (FI_MSG | FI_TAGGED | FI_DIRECTED_RECV |	\
 		     FI_RECV | FI_SEND | FI_SOURCE)
 
+/* Since we are a layering provider, the attributes for which we rely on the
+ * core provider are set to full capability. This ensures that ofix_getinfo
+ * check hints succeeds and the core provider can accept / reject any capability
+ * requested by the app. */
+
 struct fi_tx_attr rxd_tx_attr = {
 	.caps = RXD_EP_CAPS,
-	.comp_order = FI_ORDER_STRICT,
+	.msg_order = ~0x0ULL,
+	.comp_order = ~0x0ULL,
+	.size = (1ULL << RXD_MAX_RX_BITS),
 	.inject_size = 0,
-	.size = (1ULL << RXD_MAX_TX_BITS),
 	.iov_limit = RXD_IOV_LIMIT,
 	.rma_iov_limit = 0,
 };
 
 struct fi_rx_attr rxd_rx_attr = {
 	.caps = RXD_EP_CAPS,
-	.comp_order = FI_ORDER_STRICT,
+	.msg_order = ~0x0ULL,
+	.comp_order = FI_ORDER_STRICT | FI_ORDER_DATA,
 	.total_buffered_recv = 0,
-	.size = (1ULL << RXD_MAX_RX_BITS),
+	.size = 512,
 	.iov_limit = RXD_IOV_LIMIT
 };
 
@@ -67,9 +74,14 @@ struct fi_domain_attr rxd_domain_attr = {
 	.data_progress = FI_PROGRESS_MANUAL,
 	.resource_mgmt = FI_RM_ENABLED,
 	.av_type = FI_AV_UNSPEC,
+	/* Advertise support for FI_MR_BASIC so that ofi_check_info call
+	 * doesn't fail at RxM level. If an app requires FI_MR_BASIC, it
+	 * would be passed down to core provider. */
+	.mr_mode = FI_MR_BASIC | FI_MR_SCALABLE,
 	.mr_key_size = sizeof(uint64_t),
-	.cq_cnt = 128,
-	.ep_cnt = 128,
+	.cq_data_size = sizeof_field(struct ofi_op_hdr, data),
+	.cq_cnt = (1 << 16),
+	.ep_cnt = (1 << 15),
 	.tx_ctx_cnt = 1,
 	.rx_ctx_cnt = 1,
 	.max_ep_tx_ctx = 1,

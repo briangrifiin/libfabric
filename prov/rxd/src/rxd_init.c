@@ -35,12 +35,42 @@
 #include <prov.h>
 #include "rxd.h"
 
-int rxd_info_to_core(uint32_t version, const struct fi_info *rxd_info,
+int rxd_info_to_core(uint32_t version, const struct fi_info *hints,
 		     struct fi_info *core_info)
 {
-	core_info->caps = FI_MSG;
-	core_info->mode = FI_LOCAL_MR;
+	/* Support modes that ofi_rxd could handle */
+	if (FI_VERSION_GE(version, FI_VERSION(1, 5)))
+		core_info->domain_attr->mr_mode |= FI_MR_LOCAL;
+	else
+		core_info->mode |= FI_LOCAL_MR;
+
+	core_info->mode |= FI_RX_CQ_DATA | FI_CONTEXT;
+
+	if (hints) {
+		if (hints->caps & FI_TAGGED)
+			core_info->caps |= FI_MSG;
+
+		/* No fi_info modes apart from those handled earlier in
+		 * this function can be passed along to the core provider */
+
+		if (hints->domain_attr) {
+			if (FI_VERSION_GE(version, FI_VERSION(1, 5))) {
+				/* Allow only those mr modes that can be
+				 * passed along to the core provider */
+				core_info->domain_attr->mr_mode |=
+					hints->domain_attr->mr_mode &
+					OFI_MR_BASIC_MAP;
+			}
+			core_info->domain_attr->caps |= hints->domain_attr->caps;
+		}
+		if (hints->tx_attr) {
+			core_info->tx_attr->msg_order = hints->tx_attr->msg_order;
+			core_info->tx_attr->comp_order = hints->tx_attr->comp_order;
+		}
+	}
+
 	core_info->ep_attr->type = FI_EP_DGRAM;
+
 	return 0;
 }
 
@@ -51,9 +81,32 @@ int rxd_info_to_rxd(uint32_t version, const struct fi_info *core_info,
 	info->mode = rxd_info.mode;
 
 	*info->tx_attr = *rxd_info.tx_attr;
+	info->tx_attr->msg_order = core_info->tx_attr->msg_order;
+	info->tx_attr->comp_order = core_info->tx_attr->comp_order;
+	/* Export TX queue size same as that of MSG provider as we post TX
+	 * operations directly */
+	info->tx_attr->size = core_info->tx_attr->size;
+	info->tx_attr->iov_limit = MIN(MIN(info->tx_attr->iov_limit,
+			core_info->tx_attr->iov_limit),
+			core_info->tx_attr->rma_iov_limit);
+
+	
 	*info->rx_attr = *rxd_info.rx_attr;
+	info->rx_attr->iov_limit = MIN(info->rx_attr->iov_limit,
+			core_info->rx_attr->iov_limit);
+
+
 	*info->ep_attr = *rxd_info.ep_attr;
+	info->ep_attr->max_msg_size = core_info->ep_attr->max_msg_size;
+	info->ep_attr->max_order_raw_size = core_info->ep_attr->max_order_raw_size;
+	info->ep_attr->max_order_war_size = core_info->ep_attr->max_order_war_size;
+	info->ep_attr->max_order_waw_size = core_info->ep_attr->max_order_waw_size;
+
 	*info->domain_attr = *rxd_info.domain_attr;
+	info->domain_attr->mr_mode |= core_info->domain_attr->mr_mode;
+	info->domain_attr->cq_data_size = MIN(core_info->domain_attr->cq_data_size,
+					      rxd_info.domain_attr->cq_data_size);
+
 	return 0;
 }
 
@@ -61,8 +114,43 @@ static int rxd_getinfo(uint32_t version, const char *node, const char *service,
 			uint64_t flags, const struct fi_info *hints,
 			struct fi_info **info)
 {
-	return ofix_getinfo(version, node, service, flags, &rxd_util_prov,
-			    hints, rxd_info_to_core, rxd_info_to_rxd, info);
+	struct fi_info *cur, *dup;
+	int ret;
+
+	ret = ofix_getinfo(version, node, service, flags, &rxd_util_prov,
+			   hints, rxd_info_to_core, rxd_info_to_rxd, info);
+	if (ret)
+		return ret;
+
+	/* If app supports FI_MR_LOCAL, prioritize requiring it for
+	 * better performance. */
+	if (hints && hints->domain_attr &&
+	    (OFI_CHECK_MR_LOCAL(hints))) {
+		for (cur = *info; cur; cur = cur->next) {
+			if (!OFI_CHECK_MR_LOCAL(cur))
+				continue;
+			dup = fi_dupinfo(cur);
+			if (!dup) {
+				fi_freeinfo(*info);
+				return -FI_ENOMEM;
+			}
+			if (FI_VERSION_LT(version, FI_VERSION(1, 5)))
+				dup->mode &= ~FI_LOCAL_MR;
+			else
+				dup->domain_attr->mr_mode &= ~FI_MR_LOCAL;
+			dup->next = cur->next;
+			cur->next = dup;
+			cur = dup;
+		}
+	} else {
+		for (cur = *info; cur; cur = cur->next) {
+			if (FI_VERSION_LT(version, FI_VERSION(1, 5)))
+				cur->mode &= ~FI_LOCAL_MR;
+			else
+				cur->domain_attr->mr_mode &= ~FI_MR_LOCAL;
+		}
+	}
+	return 0;
 }
 
 static void rxd_fini(void)

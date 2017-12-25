@@ -106,11 +106,9 @@ int rxm_info_to_rxm(uint32_t version, const struct fi_info *core_info,
 
 	info->tx_attr->msg_order = core_info->tx_attr->msg_order;
 	info->tx_attr->comp_order = core_info->tx_attr->comp_order;
-
-	/* Export TX queue size same as that of MSG provider as we post TX
+	/* Export TX queue size same as that of DGRAM provider as we post TX
 	 * operations directly */
 	info->tx_attr->size = core_info->tx_attr->size;
-
 	info->tx_attr->iov_limit = MIN(MIN(info->tx_attr->iov_limit,
 			core_info->tx_attr->iov_limit),
 			core_info->tx_attr->rma_iov_limit);

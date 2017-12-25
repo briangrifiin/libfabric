@@ -74,6 +74,7 @@ fi_ibv_dgram_recvmsg(struct fid_ep *ep_fid, const struct fi_msg *msg,
 
 	wr_entry->hdr.ep = ep;
 	wr_entry->hdr.context = msg->context;
+	wr_entry->hdr.flags = flags | FI_RECV | FI_MSG;
 
 	wr.wr_id = (uintptr_t)wr_entry;
 	wr.next = NULL;
@@ -185,7 +186,7 @@ fi_ibv_dgram_sendmsg(struct fid_ep *ep_fid, const struct fi_msg *msg,
 
 	wr_entry->hdr.ep = ep;
 	wr_entry->hdr.context = msg->context;
-	wr_entry->hdr.flags = flags;
+	wr_entry->hdr.flags = flags | FI_SEND | FI_MSG;
 
 	sge = alloca(sizeof(*sge) * msg->iov_count + 1);
 	sge[0].addr = (uintptr_t)(wr_entry->grh_buf);

@@ -251,8 +251,10 @@ static int rxd_ep_enable(struct rxd_ep *ep)
 		rx_buf->mr = (struct fid_mr *) mr;
 		rx_buf->ep = ep;
 		ret = rxd_ep_repost_buff(rx_buf);
-		if (ret)
+		if (ret) {
+			assert(0);
 			goto out;
+		}
 		slist_insert_tail(&rx_buf->entry, &ep->rx_pkt_list);
 	}
 out:
@@ -1555,8 +1557,8 @@ int rxd_ep_create_buf_pools(struct rxd_ep *ep, struct fi_info *fi_info)
 	ep->tx_pkt_pool = util_buf_pool_create_ex(
 		rxd_ep_domain(ep)->max_mtu_sz + sizeof(struct rxd_pkt_meta),
 		RXD_BUF_POOL_ALIGNMENT, 0, RXD_TX_POOL_CHUNK_CNT,
-	        (fi_info->mode & FI_LOCAL_MR) ? rxd_buf_region_alloc_hndlr : NULL,
-		(fi_info->mode & FI_LOCAL_MR) ? rxd_buf_region_free_hndlr : NULL,
+	        (ep->do_local_mr) ? rxd_buf_region_alloc_hndlr : NULL,
+		(ep->do_local_mr) ? rxd_buf_region_free_hndlr : NULL,
 		rxd_ep_domain(ep));
 	if (!ep->tx_pkt_pool)
 		return -FI_ENOMEM;
@@ -1564,8 +1566,8 @@ int rxd_ep_create_buf_pools(struct rxd_ep *ep, struct fi_info *fi_info)
 	ep->rx_pkt_pool = util_buf_pool_create_ex(
 		rxd_ep_domain(ep)->max_mtu_sz + sizeof (struct rxd_rx_buf),
 		RXD_BUF_POOL_ALIGNMENT, 0, RXD_RX_POOL_CHUNK_CNT,
-	        (fi_info->mode & FI_LOCAL_MR) ? rxd_buf_region_alloc_hndlr : NULL,
-		(fi_info->mode & FI_LOCAL_MR) ? rxd_buf_region_free_hndlr : NULL,
+	        (ep->do_local_mr) ? rxd_buf_region_alloc_hndlr : NULL,
+		(ep->do_local_mr) ? rxd_buf_region_free_hndlr : NULL,
 		rxd_ep_domain(ep));
 	if (!ep->rx_pkt_pool)
 		goto err;
@@ -1632,7 +1634,7 @@ int rxd_endpoint(struct fid_domain *domain, struct fi_info *info,
 				  util_domain.domain_fid);
 	memset(&cq_attr, 0, sizeof cq_attr);
 	cq_attr.format = FI_CQ_FORMAT_MSG;
-	cq_attr.wait_obj = FI_WAIT_FD;
+	cq_attr.wait_obj = FI_WAIT_NONE; /* TODO: FD */
 
 	ret = ofi_endpoint_init(domain, &rxd_util_prov, info, &rxd_ep->util_ep,
 				context, rxd_ep_progress);
